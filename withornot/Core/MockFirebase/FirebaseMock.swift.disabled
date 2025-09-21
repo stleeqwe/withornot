@@ -1,0 +1,464 @@
+import Foundation
+import SwiftUI
+
+struct FirebaseApp {
+    static func configure() {}
+}
+
+struct Auth {
+    static func auth() -> Auth {
+        return Auth()
+    }
+
+    func signInAnonymously(completion: @escaping (AuthDataResult?, Error?) -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            completion(AuthDataResult(), nil)
+        }
+    }
+
+    var currentUser: FirebaseUser? { return FirebaseUser(uid: "mock-user-id") }
+
+    func addStateDidChangeListener(_ listener: @escaping (Auth, FirebaseUser?) -> Void) -> AuthStateDidChangeListenerHandle {
+        // Simulate immediate auth state change
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            listener(self, self.currentUser)
+        }
+        return NSObject()
+    }
+
+    func removeStateDidChangeListener(_ listenerHandle: AuthStateDidChangeListenerHandle) {
+        // Mock implementation - nothing to remove
+    }
+}
+
+struct AuthDataResult {
+    let user = FirebaseUser(uid: "mock-user-id")
+}
+
+struct FirebaseUser {
+    let uid: String
+}
+
+struct Firestore {
+    static func firestore() -> Firestore {
+        return Firestore()
+    }
+
+    func collection(_ path: String) -> CollectionReference {
+        return CollectionReference()
+    }
+
+    func runTransaction<T>(_ updateBlock: @escaping (Transaction, NSErrorPointer) throws -> T?) async throws -> T? {
+        return try updateBlock(Transaction(), nil)
+    }
+
+    struct Encoder {
+        func encode<T>(_ value: T) throws -> [String: Any] where T: Encodable {
+            return [:]
+        }
+    }
+
+    struct Decoder {
+        func decode<T>(_ type: T.Type, from data: [String: Any]) throws -> T where T: Decodable {
+            let jsonData = try JSONSerialization.data(withJSONObject: data)
+            return try JSONDecoder().decode(T.self, from: jsonData)
+        }
+    }
+}
+
+struct CollectionReference {
+    func document(_ documentPath: String? = nil) -> DocumentReference {
+        return DocumentReference(documentID: documentPath ?? UUID().uuidString)
+    }
+
+    func addDocument(data: [String: Any], completion: ((Error?) -> Void)? = nil) {
+        completion?(nil)
+    }
+
+    func addDocument<T: Encodable>(from data: T, encoder: Firestore.Encoder = Firestore.Encoder()) throws -> DocumentReference {
+        // Convert the encodable object to dictionary
+        let jsonData = try JSONEncoder().encode(data)
+        var dict = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
+        let newId = UUID().uuidString
+        dict["id"] = newId
+
+        // Add to mock data store
+        let newDoc = QueryDocumentSnapshot(id: newId, data: dict)
+        MockDataStore.shared.posts.append(newDoc)
+
+        // Notify listeners
+        MockDataStore.shared.notifyListeners()
+
+        return DocumentReference(documentID: newId)
+    }
+
+    func getDocuments(completion: @escaping (QuerySnapshot?, Error?) -> Void) {
+        completion(QuerySnapshot(), nil)
+    }
+
+    func order(by field: String, descending: Bool = false) -> Query {
+        return Query()
+    }
+
+    func whereField(_ field: String, isEqualTo value: Any) -> Query {
+        return Query()
+    }
+
+    func whereField(_ field: String, `in` values: [Any]) -> Query {
+        return Query()
+    }
+
+    func limit(to limit: Int) -> Query {
+        return Query()
+    }
+}
+
+struct DocumentReference {
+    let documentID: String
+
+    init(documentID: String = UUID().uuidString) {
+        self.documentID = documentID
+    }
+
+    func collection(_ collectionID: String) -> CollectionReference {
+        return CollectionReference()
+    }
+
+    func setData(_ documentData: [String: Any], merge: Bool = false, completion: ((Error?) -> Void)? = nil) {
+        completion?(nil)
+    }
+
+    func setData<T: Encodable>(from data: T, merge: Bool = false, encoder: Firestore.Encoder = Firestore.Encoder(), completion: ((Error?) -> Void)? = nil) throws {
+        completion?(nil)
+    }
+
+    func getDocument(completion: @escaping (DocumentSnapshot?, Error?) -> Void) {
+        // Find the document in MockDataStore
+        if let post = MockDataStore.shared.posts.first(where: { $0.documentID == self.documentID }) {
+            completion(DocumentSnapshot(exists: true, documentID: post.documentID, data: post.mockData), nil)
+        } else {
+            completion(DocumentSnapshot(exists: false, documentID: self.documentID), nil)
+        }
+    }
+
+    func updateData(_ fields: [AnyHashable: Any], completion: ((Error?) -> Void)? = nil) {
+        completion?(nil)
+    }
+
+    func updateData(_ fields: [AnyHashable: Any]) async throws {
+        // Mock async version
+    }
+
+    func delete(completion: ((Error?) -> Void)? = nil) {
+        completion?(nil)
+    }
+
+    func addSnapshotListener(_ listener: @escaping (DocumentSnapshot?, Error?) -> Void) -> ListenerRegistration {
+        return ListenerRegistration()
+    }
+}
+
+struct Query {
+    func getDocuments(completion: @escaping (QuerySnapshot?, Error?) -> Void) {
+        completion(QuerySnapshot(), nil)
+    }
+
+    func addSnapshotListener(_ listener: @escaping (QuerySnapshot?, Error?) -> Void) -> ListenerRegistration {
+        // Initial data
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            listener(QuerySnapshot(), nil)
+        }
+
+        // Register listener for updates
+        let id = UUID()
+        MockDataStore.shared.listeners[id] = listener
+
+        return ListenerRegistration(id: id)
+    }
+
+    func order(by field: String, descending: Bool = false) -> Query {
+        return Query()
+    }
+}
+
+struct QuerySnapshot {
+    let documents: [QueryDocumentSnapshot] = MockDataStore.shared.posts
+}
+
+struct QueryDocumentSnapshot {
+    let documentID: String
+    let mockData: [String: Any]
+
+    init(id: String = UUID().uuidString, data: [String: Any] = [:]) {
+        self.documentID = id
+        self.mockData = data
+    }
+
+    func data() -> [String: Any] {
+        return mockData
+    }
+
+    func data<T: Decodable>(as type: T.Type, decoder: Firestore.Decoder = Firestore.Decoder()) throws -> T {
+        var modifiedData = mockData
+        modifiedData["id"] = documentID
+
+        let jsonData = try JSONSerialization.data(withJSONObject: modifiedData)
+        return try JSONDecoder().decode(T.self, from: jsonData)
+    }
+}
+
+struct DocumentSnapshot {
+    let exists: Bool
+    let documentID: String
+    let mockData: [String: Any]?
+
+    init(exists: Bool = true, documentID: String = UUID().uuidString, data: [String: Any]? = nil) {
+        self.exists = exists
+        self.documentID = documentID
+        self.mockData = data
+    }
+
+    func data() -> [String: Any]? {
+        return mockData
+    }
+
+    func data<T: Decodable>(as type: T.Type, decoder: Firestore.Decoder = Firestore.Decoder()) throws -> T? {
+        guard let mockData = mockData else { return nil }
+        var modifiedData = mockData
+        modifiedData["id"] = documentID
+
+        let jsonData = try JSONSerialization.data(withJSONObject: modifiedData)
+        return try JSONDecoder().decode(T.self, from: jsonData)
+    }
+}
+
+struct ListenerRegistration {
+    let id: UUID?
+
+    init(id: UUID? = nil) {
+        self.id = id
+    }
+
+    func remove() {
+        if let id = id {
+            MockDataStore.shared.listeners.removeValue(forKey: id)
+        }
+    }
+}
+
+struct Timestamp {
+    let dateValue: () -> Date
+
+    init(date: Date) {
+        self.dateValue = { date }
+    }
+
+    static func now() -> Timestamp {
+        return Timestamp(date: Date())
+    }
+}
+
+struct FieldValue {
+    static func serverTimestamp() -> Any {
+        return Date()
+    }
+
+    static func arrayUnion(_ elements: Any...) -> Any {
+        return elements
+    }
+
+    static func arrayRemove(_ elements: Any...) -> Any {
+        return elements
+    }
+}
+
+struct Storage {
+    static let storage = Storage()
+
+    func reference() -> StorageReference {
+        return StorageReference()
+    }
+}
+
+struct StorageReference {
+    func child(_ pathString: String) -> StorageReference {
+        return StorageReference()
+    }
+
+    func putData(_ uploadData: Data, metadata: StorageMetadata? = nil, completion: ((StorageMetadata?, Error?) -> Void)? = nil) {
+        completion?(StorageMetadata(), nil)
+    }
+
+    func downloadURL(completion: @escaping (URL?, Error?) -> Void) {
+        completion(URL(string: "https://example.com/image.jpg"), nil)
+    }
+}
+
+struct StorageMetadata {}
+
+class Messaging {
+    static let shared = Messaging()
+
+    static func messaging() -> Messaging {
+        return shared
+    }
+
+    var delegate: MessagingDelegate?
+    var apnsToken: Data?
+
+    private init() {}
+}
+
+protocol MessagingDelegate: AnyObject {
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?)
+}
+
+// MARK: - Additional Types
+struct GeoPoint: Codable {
+    let latitude: Double
+    let longitude: Double
+
+    init(latitude: Double, longitude: Double) {
+        self.latitude = latitude
+        self.longitude = longitude
+    }
+}
+
+@propertyWrapper
+struct DocumentID: Codable {
+    var wrappedValue: String?
+
+    init(wrappedValue: String? = nil) {
+        self.wrappedValue = wrappedValue
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self.wrappedValue = try container.decode(String?.self)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(wrappedValue)
+    }
+}
+
+struct Functions {
+    static let functions = Functions()
+
+    func httpsCallable(_ name: String) -> HTTPSCallable {
+        return HTTPSCallable()
+    }
+}
+
+struct HTTPSCallable {
+    func call(_ data: Any? = nil, completion: @escaping (HTTPSCallableResult?, Error?) -> Void) {
+        completion(HTTPSCallableResult(), nil)
+    }
+
+    func call(_ data: Any? = nil) async throws -> HTTPSCallableResult {
+        return HTTPSCallableResult()
+    }
+}
+
+struct HTTPSCallableResult {
+    let data: Any? = nil
+}
+
+typealias AuthStateDidChangeListenerHandle = NSObjectProtocol
+
+struct Transaction {
+    func getDocument(_ documentReference: DocumentReference) throws -> DocumentSnapshot {
+        // Find the post in MockDataStore
+        if let post = MockDataStore.shared.posts.first(where: { $0.documentID == documentReference.documentID }) {
+            return DocumentSnapshot(exists: true, documentID: post.documentID, data: post.mockData)
+        }
+        return DocumentSnapshot(exists: false)
+    }
+
+    func setData<T: Encodable>(from data: T, forDocument document: DocumentReference, merge: Bool = false, encoder: Firestore.Encoder = Firestore.Encoder()) throws {
+        // Convert to dictionary and update in MockDataStore
+        let jsonData = try JSONEncoder().encode(data)
+        var dict = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
+        dict["id"] = document.documentID
+
+        // Update or add the document
+        if let index = MockDataStore.shared.posts.firstIndex(where: { $0.documentID == document.documentID }) {
+            MockDataStore.shared.posts[index] = QueryDocumentSnapshot(id: document.documentID, data: dict)
+        } else {
+            MockDataStore.shared.posts.append(QueryDocumentSnapshot(id: document.documentID, data: dict))
+        }
+
+        MockDataStore.shared.notifyListeners()
+    }
+
+    func deleteDocument(_ document: DocumentReference) {
+        // Mock implementation
+    }
+}
+
+class MockDataStore {
+    static let shared = MockDataStore()
+
+    var posts: [QueryDocumentSnapshot] = []
+    var listeners: [UUID: (QuerySnapshot?, Error?) -> Void] = [:]
+
+    private init() {
+        loadMockData()
+    }
+
+    private func loadMockData() {
+        let now = Date()
+        let mockPosts = [
+            [
+                "id": "1",
+                "creatorId": "user1",
+                "message": "오늘 저녁 7시에 한강에서 달리실 분!",
+                "locationText": "뚝섬한강공원",
+                "meetTime": now.addingTimeInterval(3600 * 2).timeIntervalSince1970,
+                "createdAt": now.timeIntervalSince1970,
+                "creatorLocation": ["latitude": 37.5293, "longitude": 127.0661],
+                "participantIds": ["user1", "user2"],
+                "status": "active",
+                "reportCount": 0
+            ],
+            [
+                "id": "2",
+                "creatorId": "user2",
+                "message": "아침 6시 조깅 같이 하실 분 구해요",
+                "locationText": "올림픽공원",
+                "meetTime": now.addingTimeInterval(3600 * 12).timeIntervalSince1970,
+                "createdAt": now.timeIntervalSince1970,
+                "creatorLocation": ["latitude": 37.5203, "longitude": 127.1216],
+                "participantIds": ["user2"],
+                "status": "active",
+                "reportCount": 0
+            ],
+            [
+                "id": "3",
+                "creatorId": "user3",
+                "message": "주말 오후 런닝 크루 모집합니다",
+                "locationText": "양재천",
+                "meetTime": now.addingTimeInterval(3600 * 48).timeIntervalSince1970,
+                "createdAt": now.timeIntervalSince1970,
+                "creatorLocation": ["latitude": 37.4709, "longitude": 127.0378],
+                "participantIds": ["user3", "user4", "user5"],
+                "status": "chatOpen",
+                "reportCount": 0
+            ]
+        ]
+
+        posts = mockPosts.map { data in
+            QueryDocumentSnapshot(id: data["id"] as! String, data: data)
+        }
+    }
+
+    func notifyListeners() {
+        DispatchQueue.main.async {
+            let snapshot = QuerySnapshot()
+            for listener in self.listeners.values {
+                listener(snapshot, nil)
+            }
+        }
+    }
+}

@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isValidMeetTime() {
+      return request.resource.data.meetTime > request.time + duration.value(5, 'm') &&
+             request.resource.data.meetTime < request.time + duration.value(24, 'h');
+    }
+    
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) && 
+        request.resource.data.keys().hasOnly(['fcmToken', 'updatedAt']);
+      allow delete: if false;
+    }
+    
+    match /posts/{postId} {
+      allow read: if isAuthenticated();
+
+      allow create: if isAuthenticated() &&
+        isValidMeetTime() &&
+        request.resource.data.creatorId == request.auth.uid &&
+        request.resource.data.participantIds.hasAll([request.auth.uid]) &&
+        request.resource.data.reportCount == 0;
+
+      // 수정 권한을 더 유연하게 변경
+      allow update: if isAuthenticated();
+
+      allow delete: if isAuthenticated() &&
+        (resource.data.reportCount >= 3 ||
+         resource.data.creatorId == request.auth.uid);
+    }
+    
+    match /chats/{postId} {
+      allow read: if isAuthenticated();
+      
+      match /messages/{messageId} {
+        allow read: if isAuthenticated();
+        
+        allow create: if isAuthenticated() &&
+          request.resource.data.userId == request.auth.uid &&
+          request.resource.data.reportCount == 0;
+        
+        allow update: if isAuthenticated() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reportCount']) &&
+          request.resource.data.reportCount == resource.data.reportCount + 1;
+        
+        allow delete: if resource.data.reportCount >= 3;
+      }
+    }
+  }
+}
