@@ -46,7 +46,7 @@ class LocationService: NSObject, ObservableObject {
 extension LocationService: CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorizationStatus = manager.authorizationStatus
-        
+
         switch authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways:
             isLocationAvailable = true
@@ -54,7 +54,7 @@ extension LocationService: CLLocationManagerDelegate {
         case .denied, .restricted:
             isLocationAvailable = false
         case .notDetermined:
-            requestLocationPermission()
+            break
         @unknown default:
             break
         }

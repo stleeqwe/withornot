@@ -10,6 +10,8 @@ struct PostListView: View {
     @State private var showCreatePost = false
     @State private var selectedPost: Post?
     @State private var showDuplicateAlert = false
+    @State private var postToDelete: Post?
+    @State private var showDeleteAlert = false
     
     var body: some View {
         NavigationStack {
@@ -43,7 +45,8 @@ struct PostListView: View {
                                             viewModel.toggleParticipation(for: post)
                                         },
                                         onDelete: {
-                                            viewModel.deletePost(post)
+                                            postToDelete = post
+                                            showDeleteAlert = true
                                         }
                                     )
                                     .contentShape(Rectangle())
@@ -110,6 +113,16 @@ struct PostListView: View {
                 Button("확인", role: .cancel) {}
             } message: {
                 Text("기존 약속이 끝난 후 새로운 약속을 만들어주세요.")
+            }
+            .alert("약속 삭제", isPresented: $showDeleteAlert) {
+                Button("취소", role: .cancel) {}
+                Button("삭제", role: .destructive) {
+                    if let post = postToDelete {
+                        viewModel.deletePost(post)
+                    }
+                }
+            } message: {
+                Text("정말로 이 약속을 삭제하시겠습니까?")
             }
         }
     }
