@@ -12,6 +12,7 @@ struct PostListView: View {
     @State private var showDuplicateAlert = false
     @State private var postToDelete: Post?
     @State private var showDeleteAlert = false
+    @State private var showAccessDeniedAlert = false
     
     var body: some View {
         NavigationStack {
@@ -124,6 +125,11 @@ struct PostListView: View {
             } message: {
                 Text("정말로 이 약속을 삭제하시겠습니까?")
             }
+            .alert("채팅방 입장 불가", isPresented: $showAccessDeniedAlert) {
+                Button("확인", role: .cancel) {}
+            } message: {
+                Text("약속에 참가한 사람만 채팅방에 입장할 수 있습니다.")
+            }
         }
     }
     
@@ -163,7 +169,12 @@ struct PostListView: View {
     
     private func handlePostTap(_ post: Post) {
         if post.shouldOpenChat {
-            selectedPost = post
+            // 참가자만 채팅방 입장 가능
+            if viewModel.isUserParticipating(in: post) {
+                selectedPost = post
+            } else {
+                showAccessDeniedAlert = true
+            }
         }
         // 참가하기/취소는 버튼으로만 처리
     }

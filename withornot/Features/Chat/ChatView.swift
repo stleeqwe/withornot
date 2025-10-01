@@ -5,7 +5,8 @@ struct ChatView: View {
     @EnvironmentObject var authService: AuthService
     @Environment(\.dismiss) private var dismiss
     @FocusState private var isInputFocused: Bool
-    
+    @State private var showReportCompleteAlert = false
+
     let post: Post
     
     init(post: Post) {
@@ -43,6 +44,7 @@ struct ChatView: View {
                                         if message.userId != "system" {
                                             Button(role: .destructive) {
                                                 viewModel.reportMessage(message)
+                                                showReportCompleteAlert = true
                                             } label: {
                                                 Label("신고", systemImage: "exclamationmark.triangle")
                                             }
@@ -101,6 +103,11 @@ struct ChatView: View {
                 setupViewModel()
             }
             .errorAlert(error: $viewModel.error)
+            .alert("신고 완료", isPresented: $showReportCompleteAlert) {
+                Button("확인", role: .cancel) {}
+            } message: {
+                Text("메시지가 신고되었습니다.")
+            }
         }
     }
     

@@ -215,25 +215,30 @@ class PostService: ObservableObject {
             }
         }
     }
-    
+
     private func updatePostStatus(_ post: Post) async {
         guard let postId = post.id else { return }
-        
-        var newStatus: Post.PostStatus = .active
-        
+
+        // 채팅방이 완전히 만료되었으면 게시글 삭제
         if post.isExpired {
-            newStatus = .expired
-        } else if post.shouldOpenChat {
-            newStatus = .chatOpen
+            do {
+                try await db.collection("posts").document(postId).delete()
+                print("✅ Expired post deleted: \(postId)")
+            } catch {
+                print("❌ Error deleting expired post: \(error)")
+            }
+            return
         }
-        
-        if newStatus != post.status {
+
+        // 채팅방이 열려야 하는 시간이면 상태 업데이트
+        if post.shouldOpenChat && post.status != .chatOpen {
             do {
                 try await db.collection("posts").document(postId).updateData([
-                    "status": newStatus.rawValue
+                    "status": Post.PostStatus.chatOpen.rawValue
                 ])
+                print("✅ Post status updated to chatOpen: \(postId)")
             } catch {
-                print("Error updating post status: \(error)")
+                print("❌ Error updating post status: \(error)")
             }
         }
     }
