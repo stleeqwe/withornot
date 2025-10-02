@@ -93,7 +93,7 @@ class ChatViewModel: ObservableObject {
                 )
             } catch {
                 await MainActor.run {
-                    self.error = error.localizedDescription
+                    self.error = error.userFriendlyMessage
                 }
             }
         }
@@ -111,7 +111,7 @@ class ChatViewModel: ObservableObject {
                 )
             } catch {
                 await MainActor.run {
-                    self.error = error.localizedDescription
+                    self.error = error.userFriendlyMessage
                 }
             }
         }

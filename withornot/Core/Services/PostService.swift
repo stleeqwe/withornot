@@ -8,9 +8,11 @@ class PostService: ObservableObject {
     @Published var posts: [Post] = []
     @Published var isLoading = false
     @Published var error: String?
-    
+
     private let db = Firestore.firestore()
     private var listener: ListenerRegistration?
+    private var lastCleanupTime: Date?
+    private let cleanupInterval: TimeInterval = 60 // 최소 60초 간격
     
     // 게시글 목록 실시간 리스닝
     func startListening() {
@@ -26,19 +28,25 @@ class PostService: ObservableObject {
                     print("❌ Firebase Error: \(error.localizedDescription)")
                     // 네트워크 오류인 경우 재시도
                     if error.localizedDescription.contains("offline") ||
-                       error.localizedDescription.contains("network") {
+                       error.localizedDescription.contains("network") ||
+                       error.localizedDescription.contains("stored version") {
                         print("🔄 Retrying connection in 3 seconds...")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                             self?.startListening()
                         }
+                    } else {
+                        // 재시도하지 않는 에러만 사용자에게 표시
+                        self?.error = error.userFriendlyMessage
                     }
-                    self?.error = error.localizedDescription
                     return
                 }
 
                 print("✅ Firebase: Received \(snapshot?.documents.count ?? 0) posts")
                 guard let documents = snapshot?.documents else { return }
-                
+
+                let currentTime = Date()
+                let expiredThreshold = -5 * 60.0 // -5분
+
                 self?.posts = documents.compactMap { doc in
                     do {
                         let post = try doc.data(as: Post.self)
@@ -49,11 +57,19 @@ class PostService: ObservableObject {
                         return nil
                     }
                 }.filter { post in
+                    // 만료 시간 체크 (meetTime + 5분이 지났는지)
+                    let timeUntilMeet = post.meetTime.timeIntervalSince(currentTime)
+                    let isNotExpired = timeUntilMeet >= expiredThreshold
+
                     // 활성 상태 체크
                     let isActiveStatus = post.status == .active || post.status == .chatOpen
-                    // 24시간 이내 게시글만 표시
-                    let isRecent = post.createdAt.timeIntervalSinceNow > -86400
 
+                    // 24시간 이내 게시글만 표시
+                    let isRecent = post.createdAt.timeIntervalSince(currentTime) > -86400
+
+                    if !isNotExpired {
+                        print("⏱ Filtering out expired post: \(post.id ?? "unknown") - meetTime: \(post.meetTime)")
+                    }
                     if !isActiveStatus {
                         print("🚫 Filtering out inactive post: \(post.id ?? "unknown") - status: \(post.status)")
                     }
@@ -61,11 +77,12 @@ class PostService: ObservableObject {
                         print("🗑 Filtering out old post: \(post.id ?? "unknown")")
                     }
 
-                    return isActiveStatus && isRecent
+                    return isNotExpired && isActiveStatus && isRecent
                 }
-                
-                // 상태 업데이트 체크
+
+                // 상태 업데이트 및 만료된 게시글 정리
                 self?.updatePostStatuses()
+                self?.cleanupExpiredPosts()
             }
     }
     
@@ -219,17 +236,6 @@ class PostService: ObservableObject {
     private func updatePostStatus(_ post: Post) async {
         guard let postId = post.id else { return }
 
-        // 채팅방이 완전히 만료되었으면 게시글 삭제
-        if post.isExpired {
-            do {
-                try await db.collection("posts").document(postId).delete()
-                print("✅ Expired post deleted: \(postId)")
-            } catch {
-                print("❌ Error deleting expired post: \(error)")
-            }
-            return
-        }
-
         // 채팅방이 열려야 하는 시간이면 상태 업데이트
         if post.shouldOpenChat && post.status != .chatOpen {
             do {
@@ -239,6 +245,47 @@ class PostService: ObservableObject {
                 print("✅ Post status updated to chatOpen: \(postId)")
             } catch {
                 print("❌ Error updating post status: \(error)")
+            }
+        }
+    }
+
+    // 만료된 게시글 정리 (60초 간격 제한)
+    private func cleanupExpiredPosts() {
+        let currentTime = Date()
+
+        // 마지막 정리 이후 60초가 지나지 않았으면 건너뜀
+        if let lastCleanup = lastCleanupTime,
+           currentTime.timeIntervalSince(lastCleanup) < cleanupInterval {
+            print("⏭ Skipping cleanup - last cleanup was \(Int(currentTime.timeIntervalSince(lastCleanup)))s ago")
+            return
+        }
+
+        lastCleanupTime = currentTime
+
+        Task {
+            do {
+                let expiredThreshold = currentTime.addingTimeInterval(-5 * 60) // 현재 시간 - 5분
+
+                let snapshot = try await db.collection("posts")
+                    .whereField("meetTime", isLessThan: expiredThreshold)
+                    .getDocuments()
+
+                print("🧹 Found \(snapshot.documents.count) expired posts to cleanup")
+
+                for document in snapshot.documents {
+                    do {
+                        try await document.reference.delete()
+                        print("✅ Deleted expired post: \(document.documentID)")
+                    } catch {
+                        print("❌ Error deleting expired post \(document.documentID): \(error)")
+                    }
+                }
+
+                if snapshot.documents.count > 0 {
+                    print("🧹 Cleanup completed: \(snapshot.documents.count) expired posts removed")
+                }
+            } catch {
+                print("❌ Error during cleanup: \(error)")
             }
         }
     }

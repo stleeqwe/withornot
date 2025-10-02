@@ -69,7 +69,7 @@ class PostListViewModel: ObservableObject {
                 try await postService.toggleParticipation(postId: postId, userId: userId)
             } catch {
                 await MainActor.run {
-                    self.error = error.localizedDescription
+                    self.error = error.userFriendlyMessage
                 }
             }
         }
@@ -83,7 +83,7 @@ class PostListViewModel: ObservableObject {
                 try await postService.deletePost(postId: postId)
             } catch {
                 await MainActor.run {
-                    self.error = error.localizedDescription
+                    self.error = error.userFriendlyMessage
                 }
             }
         }
@@ -97,7 +97,7 @@ class PostListViewModel: ObservableObject {
                 try await postService.reportPost(postId: postId)
             } catch {
                 await MainActor.run {
-                    self.error = error.localizedDescription
+                    self.error = error.userFriendlyMessage
                 }
             }
         }

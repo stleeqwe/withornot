@@ -92,7 +92,7 @@ class CreatePostViewModel: ObservableObject {
             } catch {
                 await MainActor.run {
                     isLoading = false
-                    self.error = error.localizedDescription
+                    self.error = error.userFriendlyMessage
                 }
             }
         }
