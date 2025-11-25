@@ -73,30 +73,45 @@ exports.notifyChatOpen = functions.https.onCall(async (data, context) => {
 });
 
 // 스케줄된 작업: 채팅방 자동 열기 (매분 실행)
+// 채팅방 열림 기준: meetTime 5분 전 ~ meetTime 5분 후 (총 10분)
 exports.scheduledChatRoomCreation = functions.pubsub
     .schedule('every 1 minutes')
     .onRun(async (context) => {
         const now = admin.firestore.Timestamp.now();
-        const fiveMinutesLater = new Date(now.toDate().getTime() + 5 * 60 * 1000);
-        
+        const fiveMinutesFromNow = new Date(now.toDate().getTime() + 5 * 60 * 1000);
+        const fiveMinutesAgo = new Date(now.toDate().getTime() - 5 * 60 * 1000);
+
         try {
+            // meetTime이 5분 후 이하인 active 게시글 조회
+            // (meetTime - 5분 <= now, 즉 now >= meetTime - 5분)
             const postsSnapshot = await db.collection('posts')
                 .where('status', '==', 'active')
-                .where('meetTime', '>=', now)
-                .where('meetTime', '<=', admin.firestore.Timestamp.fromDate(fiveMinutesLater))
+                .where('meetTime', '<=', admin.firestore.Timestamp.fromDate(fiveMinutesFromNow))
                 .get();
-            
+
             const batch = db.batch();
-            
+            let updatedCount = 0;
+
             postsSnapshot.docs.forEach(doc => {
-                batch.update(doc.ref, { status: 'chatOpen' });
+                const post = doc.data();
+                const meetTime = post.meetTime.toDate();
+
+                // meetTime + 5분이 현재 시간보다 이후인 경우에만 chatOpen으로 변경
+                // (아직 채팅 시간이 끝나지 않은 경우)
+                const chatEndTime = new Date(meetTime.getTime() + 5 * 60 * 1000);
+                if (chatEndTime > now.toDate()) {
+                    batch.update(doc.ref, { status: 'chatOpen' });
+                    updatedCount++;
+                }
             });
-            
-            await batch.commit();
-            
-            console.log(`Processed ${postsSnapshot.size} posts for chat room creation`);
+
+            if (updatedCount > 0) {
+                await batch.commit();
+            }
+
+            console.log(`Processed ${updatedCount} posts for chat room creation`);
             return null;
-            
+
         } catch (error) {
             console.error('Error in scheduled chat room creation:', error);
             return null;

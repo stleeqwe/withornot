@@ -2,7 +2,7 @@ import Foundation
 import CoreLocation
 import Combine
 
-class LocationService: NSObject, ObservableObject {
+class LocationService: NSObject, ObservableObject, LocationServiceProtocol {
     @Published var currentLocation: CLLocation?
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
     @Published var isLocationAvailable = false

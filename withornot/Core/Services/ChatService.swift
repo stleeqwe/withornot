@@ -2,7 +2,7 @@ import Foundation
 import FirebaseFirestore
 import Combine
 
-class ChatService: ObservableObject {
+class ChatService: ObservableObject, ChatServiceProtocol {
     @Published var messages: [Message] = []
     @Published var isLoading = false
     @Published var chatEndTime: Date?
@@ -80,30 +80,17 @@ class ChatService: ObservableObject {
             .document(postId)
             .collection("messages")
             .document(messageId)
-        
-        _ = try await db.runTransaction { (transaction, errorPointer) -> Any? in
-            do {
-                let messageDoc = try transaction.getDocument(messageRef)
-                guard var message = try? messageDoc.data(as: Message.self) else {
-                    throw ChatError.messageNotFound
-                }
 
-                message.reportCount += 1
+        _ = try await db.executeTransaction { transaction in
+            var message = try messageRef.getDecodedDocument(in: transaction, as: Message.self)
+            message.reportCount += 1
 
-                // 3회 이상 신고 시 삭제
-                if message.reportCount >= 3 {
-                    transaction.deleteDocument(messageRef)
-                } else {
-                    try transaction.setData(from: message, forDocument: messageRef)
-                }
-
-                return nil
-            } catch {
-                if let errorPointer = errorPointer {
-                    errorPointer.pointee = error as NSError
-                }
-                return nil
+            if message.reportCount >= ReportThreshold.deleteAt {
+                transaction.deleteDocument(messageRef)
+            } else {
+                try transaction.setData(from: message, forDocument: messageRef)
             }
+            return ()
         }
     }
     
