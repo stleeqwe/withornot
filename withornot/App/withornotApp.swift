@@ -2,13 +2,18 @@ import SwiftUI
 import Firebase
 import FirebaseMessaging
 
+// FCM 토큰 전달을 위한 Notification 이름
+extension Notification.Name {
+    static let fcmTokenReceived = Notification.Name("fcmTokenReceived")
+}
+
 @main
 struct withornotApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var authService = AuthService()
     @StateObject private var locationService = LocationService()
     @StateObject private var notificationService = NotificationService()
-    
+
     var body: some Scene {
         WindowGroup {
             PostListView()
@@ -20,6 +25,12 @@ struct withornotApp: App {
                     // 앱 시작 시 익명 로그인
                     if !authService.isAuthenticated {
                         authService.signInAnonymously()
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .fcmTokenReceived)) { notification in
+                    // FCM 토큰을 AuthService로 전달하여 Firestore에 저장
+                    if let token = notification.userInfo?["token"] as? String {
+                        authService.updateFCMToken(token)
                     }
                 }
         }
@@ -69,12 +80,20 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 extension AppDelegate: MessagingDelegate {
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
         print("📲 FCM Token received: \(fcmToken ?? "nil")")
-        // FCM 토큰을 Firestore에 저장할 수 있음
-        if fcmToken != nil {
-            print("✅ FCM Token is valid")
-        } else {
+
+        guard let token = fcmToken else {
             print("⚠️ FCM Token is nil")
+            return
         }
+
+        print("✅ FCM Token is valid, posting notification")
+
+        // NotificationCenter를 통해 FCM 토큰 전달
+        NotificationCenter.default.post(
+            name: .fcmTokenReceived,
+            object: nil,
+            userInfo: ["token": token]
+        )
     }
 }
 

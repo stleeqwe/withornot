@@ -6,15 +6,14 @@ struct ChatView: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var isInputFocused: Bool
     @State private var showReportCompleteAlert = false
+    @State private var showChatRoomReportAlert = false
+    @State private var showChatRoomReportCompleteAlert = false
 
     let post: Post
-    
+
     init(post: Post) {
         self.post = post
-        _viewModel = StateObject(wrappedValue: ChatViewModel(
-            post: post,
-            authService: AuthService()
-        ))
+        _viewModel = StateObject(wrappedValue: ChatViewModel(post: post))
     }
     
     var body: some View {
@@ -90,7 +89,7 @@ struct ChatView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
                         Button(role: .destructive) {
-                            // 채팅방 신고
+                            showChatRoomReportAlert = true
                         } label: {
                             Label("채팅방 신고", systemImage: "exclamationmark.triangle")
                         }
@@ -107,6 +106,20 @@ struct ChatView: View {
                 Button("확인", role: .cancel) {}
             } message: {
                 Text("메시지가 신고되었습니다.")
+            }
+            .alert("채팅방 신고", isPresented: $showChatRoomReportAlert) {
+                Button("취소", role: .cancel) {}
+                Button("신고", role: .destructive) {
+                    viewModel.reportChatRoom()
+                    showChatRoomReportCompleteAlert = true
+                }
+            } message: {
+                Text("이 채팅방을 신고하시겠습니까?\n신고가 누적되면 게시글이 삭제됩니다.")
+            }
+            .alert("신고 완료", isPresented: $showChatRoomReportCompleteAlert) {
+                Button("확인", role: .cancel) {}
+            } message: {
+                Text("채팅방이 신고되었습니다.")
             }
         }
     }
@@ -165,10 +178,10 @@ struct ChatView: View {
                 VStack(spacing: 16) {
                     Text("채팅방이 사라졌습니다")
                         .font(.googleSans(size: 20, weight: .semibold))
-                    Text("10분의 연결이 끝났어요")
+                    Text("임시 채팅이 종료되었어요")
                         .font(.googleSans(size: 14))
                         .foregroundColor(.secondaryText)
-                    
+
                     Button("확인") {
                         dismiss()
                     }
@@ -185,6 +198,7 @@ struct ChatView: View {
     }
     
     private func setupViewModel() {
-        // 실제 EnvironmentObject로 ViewModel 재설정
+        // EnvironmentObject 서비스를 ViewModel에 주입
+        viewModel.configure(authService: authService)
     }
 }

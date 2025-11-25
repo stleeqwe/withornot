@@ -28,18 +28,18 @@ extension Date {
         }
     }
     
-    // 채팅 타이머용
-    func chatTimerText(from startTime: Date) -> String {
-        let endTime = startTime.addingTimeInterval(10 * 60)
+    // 채팅 타이머용 (meetTime 기준으로 +5분까지 채팅 가능)
+    func chatTimerText(from meetTime: Date) -> String {
+        let endTime = meetTime.addingTimeInterval(5 * 60) // meetTime + 5분
         let remaining = endTime.timeIntervalSinceNow
-        
+
         if remaining <= 0 {
             return "채팅방이 종료되었습니다"
         }
-        
+
         let minutes = Int(remaining / 60)
         let seconds = Int(remaining.truncatingRemainder(dividingBy: 60))
-        
+
         return "⏱ 채팅방이 \(minutes)분 \(seconds)초 후 사라집니다"
     }
 }

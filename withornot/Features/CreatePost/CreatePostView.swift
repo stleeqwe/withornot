@@ -1,11 +1,7 @@
 import SwiftUI
 
 struct CreatePostView: View {
-    @StateObject private var viewModel = CreatePostViewModel(
-        locationService: LocationService(),
-        authService: AuthService(),
-        notificationService: NotificationService()
-    )
+    @StateObject private var viewModel = CreatePostViewModel()
     @EnvironmentObject var locationService: LocationService
     @EnvironmentObject var authService: AuthService
     @EnvironmentObject var notificationService: NotificationService
@@ -178,7 +174,12 @@ struct CreatePostView: View {
     }
     
     private func setupViewModel() {
-        // 실제 EnvironmentObject로 ViewModel 재설정
+        // EnvironmentObject 서비스를 ViewModel에 주입
+        viewModel.configure(
+            locationService: locationService,
+            authService: authService,
+            notificationService: notificationService
+        )
     }
 }
 

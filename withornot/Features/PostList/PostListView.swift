@@ -1,10 +1,7 @@
 import SwiftUI
 
 struct PostListView: View {
-    @StateObject private var viewModel = PostListViewModel(
-        locationService: LocationService(),
-        authService: AuthService()
-    )
+    @StateObject private var viewModel = PostListViewModel()
     @EnvironmentObject var authService: AuthService
     @EnvironmentObject var locationService: LocationService
     @State private var showCreatePost = false
@@ -134,8 +131,11 @@ struct PostListView: View {
     }
     
     private func setupViewModel() {
-        // ViewModel already starts listening in init
-        // No additional setup needed
+        // EnvironmentObject 서비스를 ViewModel에 주입
+        viewModel.configure(
+            locationService: locationService,
+            authService: authService
+        )
     }
     
     private func sortButton(title: String, type: PostListViewModel.SortType) -> some View {

@@ -9,12 +9,13 @@ class CreatePostViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var error: String?
     @Published var isComplete = false
-    
+
     private let postService: PostService
-    private let locationService: LocationService
-    private let authService: AuthService
-    private let notificationService: NotificationService
-    
+    private var locationService: LocationService?
+    private var authService: AuthService?
+    private var notificationService: NotificationService?
+    private var isConfigured = false
+
     // 빠른 선택 옵션
     let quickMessages = [
         "출발만 같이해요",
@@ -32,7 +33,7 @@ class CreatePostViewModel: ObservableObject {
         (minutes: 120, label: "2시간 후"),
         (minutes: 180, label: "3시간 후")
     ]
-    
+
     var minimumDate: Date {
         Date().addingTimeInterval(5 * 60) // 최소 5분 후
     }
@@ -44,20 +45,28 @@ class CreatePostViewModel: ObservableObject {
         let endOfToday = calendar.startOfDay(for: tomorrow).addingTimeInterval(-1)
         return endOfToday
     }
-    
-    init(postService: PostService = PostService(),
-         locationService: LocationService,
-         authService: AuthService,
-         notificationService: NotificationService) {
+
+    init(postService: PostService = PostService()) {
         self.postService = postService
+    }
+
+    /// EnvironmentObject에서 실제 서비스를 주입받아 설정
+    func configure(
+        locationService: LocationService,
+        authService: AuthService,
+        notificationService: NotificationService
+    ) {
+        guard !isConfigured else { return }
+
         self.locationService = locationService
         self.authService = authService
         self.notificationService = notificationService
+        self.isConfigured = true
     }
     
     func createPost() {
         guard validateInput() else { return }
-        guard let userId = authService.currentUser?.id else {
+        guard let userId = authService?.currentUser?.id else {
             error = "사용자 정보를 찾을 수 없습니다"
             return
         }
@@ -76,13 +85,13 @@ class CreatePostViewModel: ObservableObject {
                     message: message.isEmpty ? "같이 달려요!" : message,
                     locationText: locationText,
                     meetTime: meetTime,
-                    userLocation: locationService.currentLocation,
+                    userLocation: locationService?.currentLocation,
                     userId: userId
                 )
 
                 // 알림 예약
                 if let post = postService.posts.first(where: { $0.creatorId == userId }) {
-                    notificationService.scheduleChatNotification(for: post)
+                    notificationService?.scheduleChatNotification(for: post)
                 }
 
                 await MainActor.run {
