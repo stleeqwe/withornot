@@ -3,7 +3,7 @@ import FirebaseAuth
 import FirebaseFirestore
 import Combine
 
-class AuthService: ObservableObject {
+class AuthService: ObservableObject, AuthServiceProtocol {
     @Published var currentUser: User?
     @Published var isAuthenticated = false
 

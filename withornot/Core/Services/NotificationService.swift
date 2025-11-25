@@ -3,7 +3,7 @@ import UserNotifications
 import FirebaseFunctions
 import Combine
 
-class NotificationService: ObservableObject {
+class NotificationService: ObservableObject, NotificationServiceProtocol {
     @Published var hasPermission = false
     
     private lazy var functions = Functions.functions()

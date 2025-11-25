@@ -4,7 +4,7 @@ import FirebaseAuth
 import CoreLocation
 import Combine
 
-class PostService: ObservableObject {
+class PostService: ObservableObject, PostServiceProtocol {
     @Published var posts: [Post] = []
     @Published var isLoading = false
     @Published var error: String?
@@ -12,9 +12,10 @@ class PostService: ObservableObject {
     private let db = Firestore.firestore()
     private var listener: ListenerRegistration?
     private var lastCleanupTime: Date?
-    private let cleanupInterval: TimeInterval = 60 // 최소 60초 간격
+    private let cleanupInterval = TimeConstants.cleanupMinimumInterval
     
-    // 게시글 목록 실시간 리스닝
+    // MARK: - Listening
+
     func startListening() {
         isLoading = true
         print("🔥 Firebase: Starting to listen for posts...")
@@ -25,65 +26,60 @@ class PostService: ObservableObject {
                 self?.isLoading = false
 
                 if let error = error {
-                    print("❌ Firebase Error: \(error.localizedDescription)")
-                    // 네트워크 오류인 경우 재시도
-                    if error.localizedDescription.contains("offline") ||
-                       error.localizedDescription.contains("network") ||
-                       error.localizedDescription.contains("stored version") {
-                        print("🔄 Retrying connection in 3 seconds...")
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                            self?.startListening()
-                        }
-                    } else {
-                        // 재시도하지 않는 에러만 사용자에게 표시
-                        self?.error = error.userFriendlyMessage
-                    }
+                    self?.handleListenerError(error)
                     return
                 }
 
-                print("✅ Firebase: Received \(snapshot?.documents.count ?? 0) posts")
                 guard let documents = snapshot?.documents else { return }
+                print("✅ Firebase: Received \(documents.count) posts")
 
-                let currentTime = Date()
-                let expiredThreshold = -5 * 60.0 // -5분
-
-                self?.posts = documents.compactMap { doc in
-                    do {
-                        let post = try doc.data(as: Post.self)
-                        print("📝 Post loaded: \(post.id ?? "unknown") - \(post.message)")
-                        return post
-                    } catch {
-                        print("⚠️ Failed to decode post: \(error)")
-                        return nil
-                    }
-                }.filter { post in
-                    // 만료 시간 체크 (meetTime + 5분이 지났는지)
-                    let timeUntilMeet = post.meetTime.timeIntervalSince(currentTime)
-                    let isNotExpired = timeUntilMeet >= expiredThreshold
-
-                    // 활성 상태 체크
-                    let isActiveStatus = post.status == .active || post.status == .chatOpen
-
-                    // 24시간 이내 게시글만 표시
-                    let isRecent = post.createdAt.timeIntervalSince(currentTime) > -86400
-
-                    if !isNotExpired {
-                        print("⏱ Filtering out expired post: \(post.id ?? "unknown") - meetTime: \(post.meetTime)")
-                    }
-                    if !isActiveStatus {
-                        print("🚫 Filtering out inactive post: \(post.id ?? "unknown") - status: \(post.status)")
-                    }
-                    if !isRecent {
-                        print("🗑 Filtering out old post: \(post.id ?? "unknown")")
-                    }
-
-                    return isNotExpired && isActiveStatus && isRecent
-                }
-
-                // 상태 업데이트 및 만료된 게시글 정리
+                self?.posts = self?.processDocuments(documents) ?? []
                 self?.updatePostStatuses()
                 self?.cleanupExpiredPosts()
             }
+    }
+
+    private func handleListenerError(_ error: Error) {
+        print("❌ Firebase Error: \(error.localizedDescription)")
+
+        if isRetryableError(error) {
+            print("🔄 Retrying connection in 3 seconds...")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                self?.startListening()
+            }
+        } else {
+            self.error = error.userFriendlyMessage
+        }
+    }
+
+    private func isRetryableError(_ error: Error) -> Bool {
+        let description = error.localizedDescription
+        return description.contains("offline") ||
+               description.contains("network") ||
+               description.contains("stored version")
+    }
+
+    private func processDocuments(_ documents: [QueryDocumentSnapshot]) -> [Post] {
+        documents.compactMap { doc in
+            try? doc.data(as: Post.self)
+        }.filter { post in
+            shouldIncludePost(post)
+        }
+    }
+
+    private func shouldIncludePost(_ post: Post) -> Bool {
+        let currentTime = Date()
+
+        // 만료 시간 체크 (meetTime + 5분이 지났는지)
+        let isNotExpired = !post.isExpired
+
+        // 활성 상태 체크
+        let isActiveStatus = post.status == .active || post.status == .chatOpen
+
+        // 24시간 이내 게시글만 표시
+        let isRecent = post.createdAt.timeIntervalSince(currentTime) > -TimeConstants.postValidityPeriod
+
+        return isNotExpired && isActiveStatus && isRecent
     }
     
     func stopListening() {
@@ -139,44 +135,23 @@ class PostService: ObservableObject {
     
     // 참가/취소
     func toggleParticipation(postId: String, userId: String) async throws {
-        print("🔄 Attempting to toggle participation...")
-        print("   PostID: \(postId)")
-        print("   UserID: \(userId)")
-        print("   Is authenticated: \(Auth.auth().currentUser != nil)")
-        print("   Auth UID: \(Auth.auth().currentUser?.uid ?? "nil")")
+        print("🔄 Toggling participation for post: \(postId), user: \(userId)")
 
         let postRef = db.collection("posts").document(postId)
 
-        _ = try await db.runTransaction { (transaction, errorPointer) -> Any? in
-            do {
-                let postDoc = try transaction.getDocument(postRef)
-                guard var post = try? postDoc.data(as: Post.self) else {
-                    print("❌ Post not found or failed to decode")
-                    throw PostError.notFound
-                }
+        _ = try await db.executeTransaction { transaction in
+            var post = try postRef.getDecodedDocument(in: transaction, as: Post.self)
 
-                print("📝 Current participants: \(post.participantIds)")
-
-                if post.participantIds.contains(userId) {
-                    post.participantIds.removeAll { $0 == userId }
-                    print("➖ Removing user from participants")
-                } else {
-                    post.participantIds.append(userId)
-                    print("➕ Adding user to participants")
-                }
-
-                print("📝 Updated participants: \(post.participantIds)")
-
-                try transaction.setData(from: post, forDocument: postRef)
-                print("✅ Transaction completed successfully")
-                return nil
-            } catch {
-                print("❌ Transaction error: \(error)")
-                if let errorPointer = errorPointer {
-                    errorPointer.pointee = error as NSError
-                }
-                return nil
+            if post.participantIds.contains(userId) {
+                post.participantIds.removeAll { $0 == userId }
+                print("➖ Removed user from participants")
+            } else {
+                post.participantIds.append(userId)
+                print("➕ Added user to participants")
             }
+
+            try transaction.setData(from: post, forDocument: postRef)
+            return ()
         }
     }
     
@@ -198,29 +173,16 @@ class PostService: ObservableObject {
     func reportPost(postId: String) async throws {
         let postRef = db.collection("posts").document(postId)
 
-        _ = try await db.runTransaction { (transaction, errorPointer) -> Any? in
-            do {
-                let postDoc = try transaction.getDocument(postRef)
-                guard var post = try? postDoc.data(as: Post.self) else {
-                    throw PostError.notFound
-                }
+        _ = try await db.executeTransaction { transaction in
+            var post = try postRef.getDecodedDocument(in: transaction, as: Post.self)
+            post.reportCount += 1
 
-                post.reportCount += 1
-
-                // 3회 이상 신고 시 삭제
-                if post.reportCount >= 3 {
-                    transaction.deleteDocument(postRef)
-                } else {
-                    try transaction.setData(from: post, forDocument: postRef)
-                }
-
-                return nil
-            } catch {
-                if let errorPointer = errorPointer {
-                    errorPointer.pointee = error as NSError
-                }
-                return nil
+            if post.reportCount >= ReportThreshold.deleteAt {
+                transaction.deleteDocument(postRef)
+            } else {
+                try transaction.setData(from: post, forDocument: postRef)
             }
+            return ()
         }
     }
     
