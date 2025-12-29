@@ -52,14 +52,9 @@ struct ChatView: View {
                                 }
                             }
                             .padding()
-                            .onTapGesture {
-                                hideKeyboard()
-                            }
                         }
-                        .onTapGesture {
-                            hideKeyboard()
-                        }
-                        .onChange(of: viewModel.messages.count) { _ in
+                        .scrollDismissesKeyboard(.interactively)
+                        .onChange(of: viewModel.messages.count) { _, _ in
                             withAnimation {
                                 proxy.scrollTo(viewModel.messages.last?.id, anchor: .bottom)
                             }
@@ -81,7 +76,7 @@ struct ChatView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("나가기") {
+                    Button("닫기") {
                         dismiss()
                     }
                 }
@@ -100,6 +95,7 @@ struct ChatView: View {
             }
             .onAppear {
                 setupViewModel()
+                viewModel.joinChat()
             }
             .errorAlert(error: $viewModel.error)
             .alert("신고 완료", isPresented: $showReportCompleteAlert) {
@@ -131,20 +127,22 @@ struct ChatView: View {
                     .foregroundColor(.blue)
                 Text(post.locationText)
                     .font(.googleSans(size: 15, weight: .medium))
-                
+
                 Spacer()
-                
+
                 Text(post.meetTime.timeString)
                     .font(.googleSans(size: 15))
                     .foregroundColor(.secondaryText)
             }
-            
+
             Text(viewModel.timeRemaining)
                 .font(.googleSans(size: 13))
                 .foregroundColor(.orange)
         }
         .padding()
         .background(Color.cardBackground)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("약속 정보: \(post.locationText), \(post.meetTime.timeString). \(viewModel.timeRemaining)")
     }
     
     private var chatInputBar: some View {
@@ -159,13 +157,17 @@ struct ChatView: View {
                 .onSubmit {
                     viewModel.sendMessage()
                 }
-            
+                .accessibilityLabel("메시지 입력")
+                .accessibilityHint("메시지를 입력하세요")
+
             Button(action: viewModel.sendMessage) {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.googleSans(size: 32))
                     .foregroundColor(viewModel.newMessageText.isEmpty ? .gray : .blue)
             }
             .disabled(viewModel.newMessageText.isEmpty)
+            .accessibilityLabel("메시지 전송")
+            .accessibilityHint(viewModel.newMessageText.isEmpty ? "메시지를 먼저 입력하세요" : "탭하여 메시지를 전송합니다")
         }
         .padding()
         .background(Color.background)

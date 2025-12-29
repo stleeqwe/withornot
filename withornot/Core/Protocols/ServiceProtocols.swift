@@ -29,7 +29,7 @@ protocol PostServiceProtocol: ObservableObject {
     func startListening()
     func stopListening()
     func hasActivePost(userId: String) -> Bool
-    func createPost(message: String, locationText: String, meetTime: Date, userLocation: CLLocation?, userId: String) async throws
+    func createPost(category: Post.Category, message: String, locationText: String, meetTime: Date, userLocation: CLLocation?, userId: String) async throws
     func toggleParticipation(postId: String, userId: String) async throws
     func deletePost(postId: String) async throws
     func reportPost(postId: String) async throws
@@ -66,7 +66,7 @@ protocol LocationServiceProtocol: ObservableObject {
 protocol NotificationServiceProtocol: ObservableObject {
     var hasPermission: Bool { get }
 
-    func checkPermission()
+    func checkPermission() async
     func requestPermission()
     func scheduleChatNotification(for post: Post)
     func cancelNotification(for postId: String)

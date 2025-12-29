@@ -13,14 +13,24 @@ class PostService: ObservableObject, PostServiceProtocol {
     private var listener: ListenerRegistration?
     private var lastCleanupTime: Date?
     private let cleanupInterval = TimeConstants.cleanupMinimumInterval
+    private var allPosts: [Post] = [] // 필터링 전 전체 게시글
+    private var expirationTimer: Timer?
     
     // MARK: - Listening
 
     func startListening() {
+        // 이미 리스닝 중이면 무시
+        guard listener == nil else { return }
+
         isLoading = true
         print("🔥 Firebase: Starting to listen for posts...")
 
+        // 만료 기준 시간 (현재 시간 - 5분)
+        // 참고: 쿼리 시작 시점 기준으로 필터링됨. 이후 만료되는 게시글은 shouldIncludePost에서 로컬 필터링
+        let expirationThreshold = Date().addingTimeInterval(-TimeConstants.postExpirationBuffer)
+
         listener = db.collection("posts")
+            .whereField("meetTime", isGreaterThan: expirationThreshold)
             .order(by: "meetTime", descending: false)
             .addSnapshotListener { [weak self] snapshot, error in
                 self?.isLoading = false
@@ -33,10 +43,42 @@ class PostService: ObservableObject, PostServiceProtocol {
                 guard let documents = snapshot?.documents else { return }
                 print("✅ Firebase: Received \(documents.count) posts")
 
-                self?.posts = self?.processDocuments(documents) ?? []
+                // 전체 게시글 저장 후 필터링
+                self?.allPosts = documents.compactMap { try? $0.data(as: Post.self) }
+                self?.refreshFilteredPosts()
                 self?.updatePostStatuses()
                 self?.cleanupExpiredPosts()
             }
+
+        // 다음 만료 시간에 맞춰 타이머 설정
+        scheduleNextExpiration()
+    }
+
+    private func scheduleNextExpiration() {
+        expirationTimer?.invalidate()
+        expirationTimer = nil
+
+        // 현재 표시 중인 게시글 중 가장 빠른 만료 시간 찾기
+        let now = Date()
+        let nextExpiration = posts.compactMap { post -> Date? in
+            let expirationTime = post.meetTime.addingTimeInterval(TimeConstants.postExpirationBuffer)
+            return expirationTime > now ? expirationTime : nil
+        }.min()
+
+        guard let nextTime = nextExpiration else { return }
+
+        let interval = nextTime.timeIntervalSince(now) + 0.5 // 0.5초 여유
+        guard interval > 0 else { return }
+
+        print("⏰ Next post expiration in \(Int(interval))s")
+        expirationTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+            self?.refreshFilteredPosts()
+        }
+    }
+
+    private func refreshFilteredPosts() {
+        posts = allPosts.filter { shouldIncludePost($0) }
+        scheduleNextExpiration()
     }
 
     private func handleListenerError(_ error: Error) {
@@ -59,14 +101,6 @@ class PostService: ObservableObject, PostServiceProtocol {
                description.contains("stored version")
     }
 
-    private func processDocuments(_ documents: [QueryDocumentSnapshot]) -> [Post] {
-        documents.compactMap { doc in
-            try? doc.data(as: Post.self)
-        }.filter { post in
-            shouldIncludePost(post)
-        }
-    }
-
     private func shouldIncludePost(_ post: Post) -> Bool {
         let currentTime = Date()
 
@@ -85,6 +119,8 @@ class PostService: ObservableObject, PostServiceProtocol {
     func stopListening() {
         listener?.remove()
         listener = nil
+        expirationTimer?.invalidate()
+        expirationTimer = nil
         print("🛑 Firebase: Stopped listening for posts")
     }
     
@@ -98,8 +134,14 @@ class PostService: ObservableObject, PostServiceProtocol {
     }
 
     // 게시글 생성
-    func createPost(message: String, locationText: String, meetTime: Date, userLocation: CLLocation?, userId: String) async throws {
+    func createPost(category: Post.Category, message: String, locationText: String, meetTime: Date, userLocation: CLLocation?, userId: String) async throws {
         print("🔥 Firebase: Creating new post...")
+
+        // 위치 정보 필수 확인
+        guard let userLocation = userLocation else {
+            print("❌ Post creation failed: Location required")
+            throw PostError.locationRequired
+        }
 
         // 이미 활성 게시글이 있는지 확인
         if hasActivePost(userId: userId) {
@@ -107,18 +149,19 @@ class PostService: ObservableObject, PostServiceProtocol {
             throw PostError.alreadyHasActivePost
         }
 
-        guard meetTime.timeIntervalSinceNow >= 5 * 60 else {
+        guard meetTime.timeIntervalSinceNow >= TimeConstants.chatOpenBeforeMeetTime else {
             print("❌ Post creation failed: Time too soon")
             throw PostError.tooSoon
         }
-        
+
         let geoPoint = GeoPoint(
-            latitude: userLocation?.coordinate.latitude ?? 37.5665,
-            longitude: userLocation?.coordinate.longitude ?? 126.9780
+            latitude: userLocation.coordinate.latitude,
+            longitude: userLocation.coordinate.longitude
         )
-        
+
         let post = Post(
             creatorId: userId,
+            category: category,
             message: message,
             locationText: locationText,
             meetTime: meetTime,
@@ -128,7 +171,7 @@ class PostService: ObservableObject, PostServiceProtocol {
             status: .active,
             reportCount: 0
         )
-        
+
         let docRef = try db.collection("posts").addDocument(from: post)
         print("✅ Post created with ID: \(docRef.documentID)")
     }
@@ -226,7 +269,7 @@ class PostService: ObservableObject, PostServiceProtocol {
 
         Task {
             do {
-                let expiredThreshold = currentTime.addingTimeInterval(-5 * 60) // 현재 시간 - 5분
+                let expiredThreshold = currentTime.addingTimeInterval(-TimeConstants.postExpirationBuffer)
 
                 let snapshot = try await db.collection("posts")
                     .whereField("meetTime", isLessThan: expiredThreshold)
@@ -257,6 +300,7 @@ enum PostError: LocalizedError {
     case tooSoon
     case notFound
     case alreadyHasActivePost
+    case locationRequired
 
     var errorDescription: String? {
         switch self {
@@ -266,6 +310,8 @@ enum PostError: LocalizedError {
             return "게시글을 찾을 수 없습니다"
         case .alreadyHasActivePost:
             return "이미 진행 중인 약속이 있습니다.\n기존 약속이 끝난 후 새로운 약속을 만들어주세요."
+        case .locationRequired:
+            return "위치 정보가 필요합니다. 위치 권한을 허용해주세요."
         }
     }
 }

@@ -12,8 +12,8 @@ struct CreatePostViewModelTests {
 
     // MARK: - Test Helpers
 
-    func createViewModel() -> CreatePostViewModel {
-        return CreatePostViewModel()
+    func createViewModel(category: Post.Category = .run) -> CreatePostViewModel {
+        return CreatePostViewModel(category: category)
     }
 
     // MARK: - Initial State Tests
@@ -62,18 +62,36 @@ struct CreatePostViewModelTests {
 
     // MARK: - Quick Options Tests
 
-    @Test func quickMessages_hasExpectedOptions() async throws {
-        let viewModel = createViewModel()
+    @Test func quickMessages_runCategory_hasExpectedOptions() async throws {
+        let viewModel = createViewModel(category: .run)
 
         #expect(viewModel.quickMessages.contains("출발만 같이해요"))
         #expect(viewModel.quickMessages.contains("런닝 초보끼리"))
         #expect(viewModel.quickMessages.contains("페이스 맞춰서 뛰실 분"))
     }
 
-    @Test func quickLocations_hasExpectedOptions() async throws {
-        let viewModel = createViewModel()
+    @Test func quickMessages_mealCategory_hasExpectedOptions() async throws {
+        let viewModel = createViewModel(category: .meal)
+
+        #expect(viewModel.quickMessages.contains("점심 같이해요"))
+        #expect(viewModel.quickMessages.contains("저녁 한잔?"))
+        #expect(viewModel.quickMessages.contains("간단히 커피 한잔"))
+    }
+
+    @Test func quickLocations_runCategory_hasExpectedOptions() async throws {
+        let viewModel = createViewModel(category: .run)
 
         #expect(viewModel.quickLocations.contains("어린이대공원"))
+        #expect(viewModel.quickLocations.contains("한강공원"))
+        #expect(viewModel.quickLocations.contains("올림픽공원"))
+    }
+
+    @Test func quickLocations_mealCategory_hasExpectedOptions() async throws {
+        let viewModel = createViewModel(category: .meal)
+
+        #expect(viewModel.quickLocations.contains("회사 근처"))
+        #expect(viewModel.quickLocations.contains("강남역"))
+        #expect(viewModel.quickLocations.contains("홍대입구"))
     }
 
     @Test func quickTimes_hasExpectedOptions() async throws {
@@ -192,5 +210,30 @@ struct CreatePostViewModelTests {
 
         // authService가 nil이므로 "사용자 정보를 찾을 수 없습니다" 에러 예상
         #expect(viewModel.error == "사용자 정보를 찾을 수 없습니다")
+    }
+
+    // MARK: - Category Tests
+
+    @Test func viewModel_runCategory_storesCorrectCategory() async throws {
+        let viewModel = createViewModel(category: .run)
+
+        #expect(viewModel.category == .run)
+    }
+
+    @Test func viewModel_mealCategory_storesCorrectCategory() async throws {
+        let viewModel = createViewModel(category: .meal)
+
+        #expect(viewModel.category == .meal)
+    }
+
+    @Test func viewModel_differentCategories_haveDifferentQuickOptions() async throws {
+        let runViewModel = createViewModel(category: .run)
+        let mealViewModel = createViewModel(category: .meal)
+
+        // 퀵 메시지가 다름
+        #expect(runViewModel.quickMessages != mealViewModel.quickMessages)
+
+        // 퀵 장소가 다름
+        #expect(runViewModel.quickLocations != mealViewModel.quickLocations)
     }
 }

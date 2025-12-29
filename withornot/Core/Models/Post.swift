@@ -2,9 +2,16 @@ import Foundation
 import FirebaseFirestore
 import CoreLocation
 
-struct Post: Identifiable, Codable {
+struct Post: Identifiable, Codable, Equatable {
+    static func == (lhs: Post, rhs: Post) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.participantIds == rhs.participantIds &&
+        lhs.status == rhs.status
+    }
+
     @DocumentID var id: String?
     let creatorId: String
+    let category: Category
     let message: String
     let locationText: String // 텍스트로만 저장
     let meetTime: Date
@@ -13,7 +20,26 @@ struct Post: Identifiable, Codable {
     var participantIds: [String]
     var status: PostStatus
     var reportCount: Int
-    
+
+    enum Category: String, Codable, CaseIterable {
+        case run = "run"
+        case meal = "meal"
+
+        var displayName: String {
+            switch self {
+            case .run: return "런벙"
+            case .meal: return "밥벙"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .run: return "figure.run"
+            case .meal: return "fork.knife"
+            }
+        }
+    }
+
     enum PostStatus: String, Codable {
         case active = "active"
         case chatOpen = "chatOpen"
@@ -28,14 +54,35 @@ struct Post: Identifiable, Codable {
     var timeUntilMeet: TimeInterval {
         meetTime.timeIntervalSinceNow
     }
-    
-    var shouldOpenChat: Bool {
-        let fiveMinutes: TimeInterval = 5 * 60
-        return timeUntilMeet <= fiveMinutes && timeUntilMeet >= -fiveMinutes
+
+    /// 카테고리별 채팅방 열림 시간
+    var chatOpenBeforeTime: TimeInterval {
+        switch category {
+        case .run: return TimeConstants.runChatOpenBeforeMeetTime
+        case .meal: return TimeConstants.mealChatOpenBeforeMeetTime
+        }
     }
-    
+
+    /// 카테고리별 채팅방 종료 시간
+    var chatCloseAfterTime: TimeInterval {
+        switch category {
+        case .run: return TimeConstants.runChatCloseAfterMeetTime
+        case .meal: return TimeConstants.mealChatCloseAfterMeetTime
+        }
+    }
+
+    var shouldOpenChat: Bool {
+        return timeUntilMeet <= chatOpenBeforeTime &&
+               timeUntilMeet >= -chatCloseAfterTime
+    }
+
     var isExpired: Bool {
-        timeUntilMeet < -5 * 60
+        timeUntilMeet < -chatCloseAfterTime
+    }
+
+    /// 참가 토글이 가능한지 여부 (채팅방 열리기 전까지만 가능)
+    var canToggleParticipation: Bool {
+        timeUntilMeet > chatOpenBeforeTime
     }
     
     // 거리 계산

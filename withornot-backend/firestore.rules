@@ -2,6 +2,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ============================================================================
+    // 헬퍼 함수
+    // ============================================================================
+
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -10,9 +14,21 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    // 만남 시간 검증: 5분 후 ~ 24시간 이내
     function isValidMeetTime() {
       return request.resource.data.meetTime > request.time + duration.value(5, 'm') &&
              request.resource.data.meetTime < request.time + duration.value(24, 'h');
+    }
+
+    // 위치 정보 유효성 검증 (GeoPoint 타입 확인)
+    function isValidLocation() {
+      return request.resource.data.creatorLocation is latlng;
+    }
+
+    // 문자열 길이 검증
+    function isValidStringLength(field, maxLength) {
+      return request.resource.data[field] is string &&
+             request.resource.data[field].size() <= maxLength;
     }
 
     // 참가자 변경 검증: 자신만 추가/제거 가능
@@ -31,24 +47,68 @@ service cloud.firestore {
                            !newParticipants.hasAll([uid]) &&
                            newParticipants.size() == oldParticipants.size() - 1;
 
-      return isAddingSelf || isRemovingSelf;
+      // 참가자 수 제한 (최대 20명)
+      let isWithinLimit = newParticipants.size() <= 20;
+
+      return (isAddingSelf || isRemovingSelf) && isWithinLimit;
     }
+
+    // 게시글의 참가자인지 확인
+    function isPostParticipant(postId) {
+      let post = get(/databases/$(database)/documents/posts/$(postId));
+      return post != null && post.data.participantIds.hasAny([request.auth.uid]);
+    }
+
+    // ============================================================================
+    // 사용자 컬렉션
+    // ============================================================================
 
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+        request.resource.data.keys().hasAll(['id', 'createdAt']) &&
+        request.resource.data.id == userId;
+
       allow update: if isOwner(userId) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fcmToken', 'updatedAt']);
+
+      // 사용자 삭제는 Cloud Functions에서만 처리 (GDPR 등)
       allow delete: if false;
     }
+
+    // ============================================================================
+    // 게시글 컬렉션
+    // ============================================================================
 
     match /posts/{postId} {
       allow read: if isAuthenticated();
 
+      // 게시글 생성: 데이터 유효성 검사 강화
+      // 참고: 중복 게시글 검증(한 유저당 하나의 활성 게시글)은
+      // Firestore Rules에서 쿼리 불가능하므로 Cloud Functions에서 처리 권장
       allow create: if isAuthenticated() &&
-        isValidMeetTime() &&
+        // 필수 필드 존재 확인
+        request.resource.data.keys().hasAll([
+          'creatorId', 'category', 'message', 'locationText', 'meetTime',
+          'createdAt', 'creatorLocation', 'participantIds', 'status', 'reportCount'
+        ]) &&
+        // 작성자 본인 확인
         request.resource.data.creatorId == request.auth.uid &&
+        // 카테고리 검증 (run 또는 meal만 허용)
+        request.resource.data.category in ['run', 'meal'] &&
+        // 시간 검증
+        isValidMeetTime() &&
+        // 위치 정보 필수 (GeoPoint 타입)
+        isValidLocation() &&
+        // 문자열 길이 제한
+        isValidStringLength('message', 500) &&
+        isValidStringLength('locationText', 100) &&
+        // 참가자 목록에 작성자 포함
         request.resource.data.participantIds.hasAll([request.auth.uid]) &&
+        request.resource.data.participantIds.size() <= 20 &&
+        // 초기 상태 검증
+        request.resource.data.status == 'active' &&
         request.resource.data.reportCount == 0;
 
       // 참가자 변경: 자신만 추가/제거 가능
@@ -56,36 +116,43 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participantIds']) &&
         isValidParticipantChange();
 
-      // 신고: reportCount만 1 증가
-      allow update: if isAuthenticated() &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reportCount']) &&
-        request.resource.data.reportCount == resource.data.reportCount + 1;
-
       // 상태 변경: 작성자만 가능 (또는 Cloud Functions에서 처리)
       allow update: if isAuthenticated() &&
         resource.data.creatorId == request.auth.uid &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
 
+      // 삭제: 작성자만 가능 (신고 삭제는 Cloud Functions에서 처리)
       allow delete: if isAuthenticated() &&
-        (resource.data.reportCount >= 3 ||
-         resource.data.creatorId == request.auth.uid);
+        resource.data.creatorId == request.auth.uid;
     }
 
+    // ============================================================================
+    // 채팅 컬렉션
+    // ============================================================================
+
     match /chats/{postId} {
-      allow read: if isAuthenticated();
+      // 채팅 문서 읽기: 참가자만 가능
+      allow read: if isAuthenticated() && isPostParticipant(postId);
+
+      // 채팅 문서 생성/수정/삭제: Cloud Functions에서만 처리
+      allow create, update, delete: if false;
 
       match /messages/{messageId} {
-        allow read: if isAuthenticated();
+        // 메시지 읽기: 해당 게시글 참가자만 가능
+        allow read: if isAuthenticated() && isPostParticipant(postId);
 
+        // 메시지 생성: 참가자만 가능, 유효성 검사
         allow create: if isAuthenticated() &&
+          isPostParticipant(postId) &&
+          request.resource.data.keys().hasAll(['userId', 'text', 'timestamp', 'reportCount']) &&
           request.resource.data.userId == request.auth.uid &&
+          request.resource.data.text is string &&
+          request.resource.data.text.size() > 0 &&
+          request.resource.data.text.size() <= 1000 &&
           request.resource.data.reportCount == 0;
 
-        allow update: if isAuthenticated() &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reportCount']) &&
-          request.resource.data.reportCount == resource.data.reportCount + 1;
-
-        allow delete: if resource.data.reportCount >= 3;
+        // 메시지 수정/삭제: Cloud Functions에서만 처리 (신고 시스템)
+        allow update, delete: if false;
       }
     }
   }

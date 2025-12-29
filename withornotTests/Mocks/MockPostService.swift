@@ -6,6 +6,7 @@
 import Foundation
 import Combine
 import CoreLocation
+import FirebaseFirestore
 @testable import withornot
 
 class MockPostService: ObservableObject {
@@ -22,6 +23,7 @@ class MockPostService: ObservableObject {
     var reportPostCalled = false
 
     // 마지막 호출 파라미터
+    var lastCreatedCategory: Post.Category?
     var lastCreatedMessage: String?
     var lastCreatedLocationText: String?
     var lastCreatedMeetTime: Date?
@@ -55,8 +57,9 @@ class MockPostService: ObservableObject {
         }
     }
 
-    func createPost(message: String, locationText: String, meetTime: Date, userLocation: CLLocation?, userId: String) async throws {
+    func createPost(category: Post.Category, message: String, locationText: String, meetTime: Date, userLocation: CLLocation?, userId: String) async throws {
         createPostCalled = true
+        lastCreatedCategory = category
         lastCreatedMessage = message
         lastCreatedLocationText = locationText
         lastCreatedMeetTime = meetTime
@@ -73,6 +76,7 @@ class MockPostService: ObservableObject {
 
         var newPost = Post(
             creatorId: userId,
+            category: category,
             message: message,
             locationText: locationText,
             meetTime: meetTime,
@@ -156,11 +160,9 @@ class MockPostService: ObservableObject {
         deletePostCalled = false
         reportPostCalled = false
         shouldThrowError = false
+        lastCreatedCategory = nil
+        lastCreatedMessage = nil
+        lastCreatedLocationText = nil
+        lastCreatedMeetTime = nil
     }
-}
-
-// GeoPoint mock (Firebase 없이 테스트용)
-struct GeoPoint {
-    let latitude: Double
-    let longitude: Double
 }

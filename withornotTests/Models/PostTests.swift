@@ -15,12 +15,14 @@ struct PostTests {
 
     func createMockPost(
         meetTime: Date = Date().addingTimeInterval(30 * 60),
+        category: Post.Category = .run,
         status: Post.PostStatus = .active,
         participantIds: [String] = ["user1"],
         reportCount: Int = 0
     ) -> Post {
         return Post(
             creatorId: "creator1",
+            category: category,
             message: "테스트 메시지",
             locationText: "테스트 장소",
             meetTime: meetTime,
@@ -151,5 +153,64 @@ struct PostTests {
 
     @Test func postStatus_expiredRawValue() async throws {
         #expect(Post.PostStatus.expired.rawValue == "expired")
+    }
+
+    // MARK: - Category Tests
+
+    @Test func category_runRawValue() async throws {
+        #expect(Post.Category.run.rawValue == "run")
+    }
+
+    @Test func category_mealRawValue() async throws {
+        #expect(Post.Category.meal.rawValue == "meal")
+    }
+
+    @Test func category_runDisplayName() async throws {
+        #expect(Post.Category.run.displayName == "런벙")
+    }
+
+    @Test func category_mealDisplayName() async throws {
+        #expect(Post.Category.meal.displayName == "밥벙")
+    }
+
+    @Test func category_runIcon() async throws {
+        #expect(Post.Category.run.icon == "figure.run")
+    }
+
+    @Test func category_mealIcon() async throws {
+        #expect(Post.Category.meal.icon == "fork.knife")
+    }
+
+    @Test func createPost_withRunCategory() async throws {
+        let post = createMockPost(category: .run)
+        #expect(post.category == .run)
+    }
+
+    @Test func createPost_withMealCategory() async throws {
+        let post = createMockPost(category: .meal)
+        #expect(post.category == .meal)
+    }
+
+    // MARK: - canToggleParticipation Tests
+
+    @Test func canToggleParticipation_moreThan5MinutesBefore_returnsTrue() async throws {
+        let futureTime = Date().addingTimeInterval(10 * 60) // 10분 후
+        let post = createMockPost(meetTime: futureTime)
+
+        #expect(post.canToggleParticipation == true)
+    }
+
+    @Test func canToggleParticipation_lessThan5MinutesBefore_returnsFalse() async throws {
+        let soonTime = Date().addingTimeInterval(3 * 60) // 3분 후
+        let post = createMockPost(meetTime: soonTime)
+
+        #expect(post.canToggleParticipation == false)
+    }
+
+    @Test func canToggleParticipation_afterMeetTime_returnsFalse() async throws {
+        let pastTime = Date().addingTimeInterval(-1 * 60) // 1분 전
+        let post = createMockPost(meetTime: pastTime)
+
+        #expect(post.canToggleParticipation == false)
     }
 }

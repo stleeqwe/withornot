@@ -15,10 +15,12 @@ struct ChatViewModelTests {
 
     func createMockPost(
         id: String = "post-123",
+        category: Post.Category = .run,
         meetTime: Date = Date().addingTimeInterval(2 * 60) // 2분 후 (채팅방 열림 상태)
     ) -> Post {
         var post = Post(
             creatorId: "creator1",
+            category: category,
             message: "테스트 메시지",
             locationText: "테스트 장소",
             meetTime: meetTime,
@@ -57,8 +59,11 @@ struct ChatViewModelTests {
         #expect(viewModel.error == nil)
     }
 
-    @Test func viewModel_initialState_hasSystemMessage() async throws {
+    @Test func viewModel_afterJoinChat_hasSystemMessage() async throws {
         let viewModel = createViewModel()
+
+        // joinChat 호출 후 시스템 메시지가 추가됨
+        viewModel.joinChat()
 
         // 시스템 메시지가 추가되어야 함
         #expect(viewModel.messages.count >= 1)
@@ -117,8 +122,11 @@ struct ChatViewModelTests {
 
     // MARK: - timeRemaining Tests
 
-    @Test func timeRemaining_isNotEmpty() async throws {
+    @Test func timeRemaining_afterJoinChat_isNotEmpty() async throws {
         let viewModel = createViewModel()
+
+        // joinChat 호출 후 타이머 시작
+        viewModel.joinChat()
 
         // 약간의 딜레이 후 확인 (타이머가 시작된 후)
         try await Task.sleep(nanoseconds: 100_000_000) // 0.1초
@@ -128,11 +136,14 @@ struct ChatViewModelTests {
 
     // MARK: - Chat Expiration Tests
 
-    @Test func viewModel_withExpiredChat_setIsChatExpired() async throws {
+    @Test func viewModel_withExpiredChat_afterJoinChat_setIsChatExpired() async throws {
         // 이미 만료된 시간으로 게시글 생성
         let expiredMeetTime = Date().addingTimeInterval(-10 * 60) // 10분 전
         let post = createMockPost(meetTime: expiredMeetTime)
         let viewModel = createViewModel(post: post)
+
+        // joinChat 호출 후 타이머 시작
+        viewModel.joinChat()
 
         // 약간의 딜레이 후 확인 (타이머가 업데이트된 후)
         try await Task.sleep(nanoseconds: 200_000_000) // 0.2초

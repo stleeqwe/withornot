@@ -1,180 +1,188 @@
 import SwiftUI
 
 struct CreatePostView: View {
-    @StateObject private var viewModel = CreatePostViewModel()
+    @StateObject private var viewModel: CreatePostViewModel
     @EnvironmentObject var locationService: LocationService
     @EnvironmentObject var authService: AuthService
     @EnvironmentObject var notificationService: NotificationService
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focusedField: Field?
 
+    let category: Post.Category
+
+    init(category: Post.Category) {
+        self.category = category
+        _viewModel = StateObject(wrappedValue: CreatePostViewModel(category: category))
+    }
+
     enum Field {
         case message, location
     }
-    
+
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.background
                     .ignoresSafeArea()
-                    .onTapGesture {
-                        hideKeyboard()
-                    }
+                    .onTapGesture { hideKeyboard() }
 
                 ScrollView {
                     VStack(spacing: 30) {
-                        // 메시지 입력
-                        VStack(alignment: .leading, spacing: 12) {
-                            Label("메시지", systemImage: "text.bubble")
-                                .font(.googleSans(size: 13, weight: .medium))
-                                .foregroundColor(.secondaryText)
-
-                            TextField("자유롭게 한마디 (선택사항)", text: $viewModel.message, axis: .vertical)
-                                .textFieldStyle(CustomTextFieldStyle())
-                                .lineLimit(3...5)
-                                .focused($focusedField, equals: .message)
-
-                            // 메시지 빠른 선택
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    ForEach(viewModel.quickMessages, id: \.self) { quickMessage in
-                                        QuickSelectButton(
-                                            title: quickMessage,
-                                            isSelected: viewModel.message == quickMessage
-                                        ) {
-                                            viewModel.setQuickMessage(quickMessage)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        
-                        // 장소 입력
-                        VStack(alignment: .leading, spacing: 12) {
-                            Label("만남 장소", systemImage: "mappin.circle")
-                                .font(.googleSans(size: 13, weight: .medium))
-                                .foregroundColor(.secondaryText)
-                            
-                            TextField("예: 한강공원 뚝섬지구", text: $viewModel.locationText)
-                                .textFieldStyle(CustomTextFieldStyle())
-                                .focused($focusedField, equals: .location)
-                            
-                            // 빠른 선택
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    ForEach(viewModel.quickLocations, id: \.self) { location in
-                                        QuickSelectButton(
-                                            title: location,
-                                            isSelected: viewModel.locationText == location
-                                        ) {
-                                            viewModel.setQuickLocation(location)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        
-                        // 시간 선택
-                        VStack(alignment: .leading, spacing: 12) {
-                            Label("만남 시간 (오늘)", systemImage: "clock")
-                                .font(.googleSans(size: 13, weight: .medium))
-                                .foregroundColor(.secondaryText)
-
-                            DatePicker(
-                                "",
-                                selection: $viewModel.meetTime,
-                                in: viewModel.minimumDate...viewModel.maximumDate,
-                                displayedComponents: .hourAndMinute
-                            )
-                            .datePickerStyle(WheelDatePickerStyle())
-                            .labelsHidden()
-                            .frame(height: 120)
-                            .clipped()
-
-                            // 빠른 선택
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    ForEach(viewModel.quickTimes, id: \.minutes) { time in
-                                        QuickSelectButton(
-                                            title: time.label,
-                                            isSelected: false
-                                        ) {
-                                            viewModel.setQuickTime(minutes: time.minutes)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        
-                        // 현재 위치 표시
-                        if locationService.isLocationAvailable {
-                            HStack {
-                                Image(systemName: "location.fill")
-                                    .foregroundColor(.green)
-                                Text("현재 위치 기반 거리 표시 활성화")
-                                    .font(.googleSans(size: 13))
-                                Spacer()
-                            }
-                            .padding()
-                            .background(Color.green.opacity(0.1))
-                            .cornerRadius(10)
-                        }
-
-                        // 채팅창 안내 메시지
-                        HStack {
-                            Image(systemName: "info.circle.fill")
-                                .foregroundColor(Color.mainBlue)
-                                .font(.googleSans(size: 16))
-                            Text("약속시간 5분 전, 채팅창이 열려요!")
-                                .font(.googleSans(size: 14, weight: .medium))
-                                .foregroundColor(.primaryText)
-                            Spacer()
-                        }
-                        .padding()
-                        .background(Color.mainBlue.opacity(0.1))
-                        .cornerRadius(10)
+                        messageSection
+                        locationSection
+                        timeSection
+                        locationStatusView
+                        chatInfoView
                     }
                     .padding()
-                    .onTapGesture {
-                        hideKeyboard()
-                    }
+                    .onTapGesture { hideKeyboard() }
                 }
-                .onTapGesture {
-                    hideKeyboard()
-                }
+                .onTapGesture { hideKeyboard() }
             }
-            .navigationTitle("런닝 약속 만들기")
+            .navigationTitle(category == .run ? "런닝 약속 만들기" : "밥 약속 만들기")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("취소") {
-                        dismiss()
-                    }
+                    Button("취소") { dismiss() }
                 }
-                
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("완료") {
-                        viewModel.createPost()
-                    }
-                    .fontWeight(.semibold)
-                    .disabled(viewModel.isLoading)
+                    Button("완료") { viewModel.createPost() }
+                        .fontWeight(.semibold)
+                        .disabled(viewModel.isLoading)
                 }
             }
-            .onAppear {
-                setupViewModel()
-            }
-            .onChange(of: viewModel.isComplete) { isComplete in
-                if isComplete {
-                    dismiss()
-                }
+            .onAppear { setupViewModel() }
+            .onChange(of: viewModel.isComplete) { _, isComplete in
+                if isComplete { dismiss() }
             }
             .errorAlert(error: $viewModel.error)
             .loadingOverlay(viewModel.isLoading)
+            .alert("위치 권한이 필요해요", isPresented: $viewModel.showLocationPermissionAlert) {
+                Button("취소", role: .cancel) {}
+                Button("설정으로 이동") { viewModel.openSettings() }
+            } message: {
+                Text("약속 생성을 위해 현재 위치가 필요합니다.\n설정에서 위치 권한을 허용해주세요.")
+            }
         }
     }
-    
+
+    // MARK: - Subviews
+
+    private var messageSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("메시지", systemImage: "text.bubble")
+                .font(.googleSans(size: 13, weight: .medium))
+                .foregroundColor(.secondaryText)
+
+            TextField("자유롭게 한마디 (선택사항)", text: $viewModel.message, axis: .vertical)
+                .textFieldStyle(CustomTextFieldStyle())
+                .lineLimit(3...5)
+                .focused($focusedField, equals: .message)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(viewModel.quickMessages, id: \.self) { quickMessage in
+                        QuickSelectButton(
+                            title: quickMessage,
+                            isSelected: viewModel.message == quickMessage
+                        ) {
+                            viewModel.setQuickMessage(quickMessage)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var locationSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("만남 장소", systemImage: "mappin.circle")
+                .font(.googleSans(size: 13, weight: .medium))
+                .foregroundColor(.secondaryText)
+
+            TextField("예: 한강공원 뚝섬지구", text: $viewModel.locationText)
+                .textFieldStyle(CustomTextFieldStyle())
+                .focused($focusedField, equals: .location)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(viewModel.quickLocations, id: \.self) { location in
+                        QuickSelectButton(
+                            title: location,
+                            isSelected: viewModel.locationText == location
+                        ) {
+                            viewModel.setQuickLocation(location)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var timeSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("만남 시간 (오늘)", systemImage: "clock")
+                .font(.googleSans(size: 13, weight: .medium))
+                .foregroundColor(.secondaryText)
+
+            DatePicker(
+                "",
+                selection: $viewModel.meetTime,
+                in: viewModel.minimumDate...viewModel.maximumDate,
+                displayedComponents: .hourAndMinute
+            )
+            .datePickerStyle(WheelDatePickerStyle())
+            .labelsHidden()
+            .frame(height: 120)
+            .clipped()
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(viewModel.quickTimes, id: \.minutes) { time in
+                        QuickSelectButton(
+                            title: time.label,
+                            isSelected: false
+                        ) {
+                            viewModel.setQuickTime(minutes: time.minutes)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var locationStatusView: some View {
+        if locationService.isLocationAvailable {
+            HStack {
+                Image(systemName: "location.fill")
+                    .foregroundColor(.green)
+                Text("현재 위치 기반 거리 표시 활성화")
+                    .font(.googleSans(size: 13))
+                Spacer()
+            }
+            .padding()
+            .background(Color.green.opacity(0.1))
+            .cornerRadius(10)
+        }
+    }
+
+    private var chatInfoView: some View {
+        HStack {
+            Image(systemName: "info.circle.fill")
+                .foregroundColor(Color.mainBlue)
+                .font(.googleSans(size: 16))
+            Text("약속시간 5분 전, 채팅창이 열려요!")
+                .font(.googleSans(size: 14, weight: .medium))
+                .foregroundColor(.primaryText)
+            Spacer()
+        }
+        .padding()
+        .background(Color.mainBlue.opacity(0.1))
+        .cornerRadius(10)
+    }
+
     private func setupViewModel() {
-        // EnvironmentObject 서비스를 ViewModel에 주입
         viewModel.configure(
             locationService: locationService,
             authService: authService,
@@ -188,7 +196,7 @@ struct QuickSelectButton: View {
     let title: String
     let isSelected: Bool
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
             Text(title)
@@ -196,9 +204,7 @@ struct QuickSelectButton: View {
                 .foregroundColor(isSelected ? .white : .blue)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
-                .background(
-                    isSelected ? Color.blue : Color.blue.opacity(0.1)
-                )
+                .background(isSelected ? Color.blue : Color.blue.opacity(0.1))
                 .cornerRadius(20)
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)

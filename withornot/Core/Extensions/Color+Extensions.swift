@@ -20,6 +20,9 @@ extension Color {
     static let successColor = Color.green
     static let warningColor = Color.orange
     static let errorColor = Color.red
+
+    // 앱 특정 색상
+    static let locationGreen = Color(hex: "#9bff1b")
 }
 
 extension Color {

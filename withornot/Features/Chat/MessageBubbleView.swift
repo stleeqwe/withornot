@@ -3,13 +3,23 @@ import SwiftUI
 struct MessageBubbleView: View {
     let message: Message
     let isMyMessage: Bool
-    
+
+    private var accessibilityText: String {
+        if message.userId == "system" {
+            return "시스템 메시지: \(message.text)"
+        } else if isMyMessage {
+            return "내 메시지: \(message.text)"
+        } else {
+            return "익명 \(message.displayUserId)의 메시지: \(message.text)"
+        }
+    }
+
     var body: some View {
         HStack {
             if isMyMessage {
                 Spacer(minLength: 60)
             }
-            
+
             VStack(alignment: isMyMessage ? .trailing : .leading, spacing: 4) {
                 // 시스템 메시지
                 if message.userId == "system" {
@@ -24,7 +34,7 @@ struct MessageBubbleView: View {
                         Text(isMyMessage ? "나" : "익명 (\(message.displayUserId))")
                             .font(.googleSans(size: 11))
                             .foregroundColor(.secondaryText)
-                        
+
                         Text(message.text)
                             .font(.googleSans(size: 15))
                             .foregroundColor(isMyMessage ? .white : .primaryText)
@@ -45,10 +55,12 @@ struct MessageBubbleView: View {
                     }
                 }
             }
-            
+
             if !isMyMessage {
                 Spacer(minLength: 60)
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityText)
     }
 }

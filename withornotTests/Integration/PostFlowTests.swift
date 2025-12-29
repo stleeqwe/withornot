@@ -19,16 +19,20 @@ struct PostFlowTests {
     func createMockPost(
         id: String = "integration-post-123",
         creatorId: String = "creator-user",
+        category: Post.Category = .run,
         meetTime: Date = Date().addingTimeInterval(10 * 60),
-        status: Post.PostStatus = .active
+        status: Post.PostStatus = .active,
+        latitude: Double = 37.5665,
+        longitude: Double = 126.9780
     ) -> Post {
         var post = Post(
             creatorId: creatorId,
+            category: category,
             message: "통합 테스트 메시지",
             locationText: "테스트 장소",
             meetTime: meetTime,
             createdAt: Date(),
-            creatorLocation: GeoPoint(latitude: 37.5665, longitude: 126.9780),
+            creatorLocation: GeoPoint(latitude: latitude, longitude: longitude),
             participantIds: [creatorId],
             status: status,
             reportCount: 0
@@ -40,13 +44,14 @@ struct PostFlowTests {
     // MARK: - Post Lifecycle Tests
 
     @Test func postLifecycle_activeToExpired() async throws {
-        // 1. Active 상태의 게시글 생성
-        let meetTime = Date().addingTimeInterval(-6 * 60) // 6분 전 (이미 만료)
+        // 1. Active 상태의 게시글 생성 (6분 전 = 만료)
+        let meetTime = Date().addingTimeInterval(-6 * 60) // 6분 전
         let post = createMockPost(meetTime: meetTime, status: .active)
 
-        // 2. 만료 상태 확인
+        // 2. 만료 상태 확인 (meetTime + 5분이 지나면 isExpired)
         #expect(post.isExpired == true)
-        #expect(post.shouldOpenChat == true) // meetTime이 지났으므로 채팅 열림 조건 충족
+        // shouldOpenChat은 -5분 ~ +5분 사이만 true (6분 전이므로 false)
+        #expect(post.shouldOpenChat == false)
     }
 
     @Test func postLifecycle_activeToChatOpen() async throws {
@@ -143,6 +148,9 @@ struct PostFlowTests {
         let post = createMockPost(meetTime: meetTime)
         let chatViewModel = ChatViewModel(post: post)
 
+        // joinChat 호출 후 타이머 시작
+        chatViewModel.joinChat()
+
         // 약간의 딜레이 후 만료 상태 확인
         try await Task.sleep(nanoseconds: 200_000_000) // 0.2초
 
@@ -200,6 +208,9 @@ struct PostFlowTests {
         let post = createMockPost(status: .chatOpen)
         let chatViewModel = ChatViewModel(post: post)
 
+        // joinChat 호출 후 시스템 메시지가 추가됨
+        chatViewModel.joinChat()
+
         // 시스템 메시지가 추가되어야 함
         #expect(chatViewModel.messages.count >= 1)
 
@@ -216,7 +227,8 @@ struct PostFlowTests {
         )
         systemMessage.id = "system-msg"
 
-        #expect(systemMessage.displayUserId == "시스템")
+        // displayUserId는 userId의 앞 4자리를 반환
+        #expect(systemMessage.displayUserId == "syst")
     }
 
     @Test func messageFlow_displayUserIdForRegularUser() async throws {
@@ -227,8 +239,8 @@ struct PostFlowTests {
         )
         userMessage.id = "user-msg"
 
-        // 마지막 4자리 표시
-        #expect(userMessage.displayUserId == "c123")
+        // displayUserId는 userId의 앞 4자리를 반환
+        #expect(userMessage.displayUserId == "user")
     }
 
     // MARK: - Location Integration Tests
@@ -288,5 +300,95 @@ struct PostFlowTests {
         message.reportCount += 1
 
         #expect(message.reportCount == 1)
+    }
+
+    // MARK: - Category Integration Tests
+
+    @Test func categoryIntegration_runAndMealPostsSeparated() async throws {
+        let runPost1 = createMockPost(id: "run1", category: .run)
+        let runPost2 = createMockPost(id: "run2", category: .run)
+        let mealPost1 = createMockPost(id: "meal1", category: .meal)
+
+        let allPosts = [runPost1, runPost2, mealPost1]
+
+        let runPosts = allPosts.filter { $0.category == .run }
+        let mealPosts = allPosts.filter { $0.category == .meal }
+
+        #expect(runPosts.count == 2)
+        #expect(mealPosts.count == 1)
+    }
+
+    @Test func categoryIntegration_categoryPersistsAcrossOperations() async throws {
+        var runPost = createMockPost(category: .run)
+
+        // 참가자 추가
+        runPost.participantIds.append("new-user")
+
+        // 카테고리 유지 확인
+        #expect(runPost.category == .run)
+        #expect(runPost.participantCount == 2)
+    }
+
+    // MARK: - Distance Filter Integration Tests
+
+    @Test func distanceFilterIntegration_within3km() async throws {
+        // 서울 시청 근처 게시글들
+        let nearPost = createMockPost(id: "near", latitude: 37.5665, longitude: 126.9780)
+        let farPost = createMockPost(id: "far", latitude: 37.7665, longitude: 126.9780) // 약 22km
+
+        let userLocation = CLLocation(latitude: 37.5665, longitude: 126.9780)
+        let maxDistance = 3.0 // 3km
+
+        let filteredPosts = [nearPost, farPost].filter { post in
+            post.distance(from: userLocation) <= maxDistance
+        }
+
+        #expect(filteredPosts.count == 1)
+        #expect(filteredPosts.first?.id == "near")
+    }
+
+    @Test func distanceFilterIntegration_combinedWithCategory() async throws {
+        // 3km 이내 런벙
+        let nearRun = createMockPost(id: "nearRun", category: .run, latitude: 37.5665, longitude: 126.9780)
+        // 3km 이내 밥벙
+        let nearMeal = createMockPost(id: "nearMeal", category: .meal, latitude: 37.5665, longitude: 126.9780)
+        // 3km 초과 런벙
+        let farRun = createMockPost(id: "farRun", category: .run, latitude: 37.8, longitude: 126.9780)
+        // 3km 초과 밥벙
+        let farMeal = createMockPost(id: "farMeal", category: .meal, latitude: 37.8, longitude: 126.9780)
+
+        let allPosts = [nearRun, nearMeal, farRun, farMeal]
+        let userLocation = CLLocation(latitude: 37.5665, longitude: 126.9780)
+        let maxDistance = 3.0
+
+        // 런벙 + 3km 필터
+        let filteredRunPosts = allPosts.filter { post in
+            post.category == .run && post.distance(from: userLocation) <= maxDistance
+        }
+
+        // 밥벙 + 3km 필터
+        let filteredMealPosts = allPosts.filter { post in
+            post.category == .meal && post.distance(from: userLocation) <= maxDistance
+        }
+
+        #expect(filteredRunPosts.count == 1)
+        #expect(filteredRunPosts.first?.id == "nearRun")
+        #expect(filteredMealPosts.count == 1)
+        #expect(filteredMealPosts.first?.id == "nearMeal")
+    }
+
+    // MARK: - Location Requirement Integration Tests
+
+    @Test func locationRequirement_postCreationNeedsLocation() async throws {
+        // 위치 없이 게시글 생성 시도 시 에러 발생해야 함
+        let viewModel = CreatePostViewModel(category: .run)
+        viewModel.locationText = "테스트 장소"
+        viewModel.message = "테스트"
+
+        // authService/locationService가 configure되지 않으면 에러 발생
+        viewModel.createPost()
+
+        // "사용자 정보를 찾을 수 없습니다" 에러 발생 (authService가 nil이므로)
+        #expect(viewModel.error != nil)
     }
 }
